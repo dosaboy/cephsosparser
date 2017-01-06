@@ -3,39 +3,15 @@ import argparse
 import datetime
 import re
 
-from common import get_hostname_from_path
-from subprocess import check_output, CalledProcessError
+from common import get
 
 suicide_stats = {}
-events = []
 MONTH = '11'
 
 
-def get(path):
-    out = check_output(['find', path, '-type', 'f', '-name', 'ceph*'])
-    paths = [path for path in out.split('\n')
-             if re.search('var/log/ceph/ceph-osd.+', path)]
-    for path in paths:
-        hostname = get_hostname_from_path(path)
-        try:
-            cmd = ['zgrep', '-EHi', '"had suicide timed out"', path]
-            out = check_output(' '.join(cmd), shell=True)
-            for line in out.split('\n'):
-                if not re.search(":\s+-[0-9]*>", line):
-                    res = re.search(".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9][0-9]"
-                                    "[0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:[0-9]+:"
-                                    "[0-9]+\.[0-9]*).+had suicide timed out "
-                                    "after (.+)", line)
-                    if res:
-                        events.append({'host': hostname, 'data': res})
-
-        except CalledProcessError:
-            pass
-
-
-def parse():
+def parse(stats_obj):
     global suicide_stats
-    for event in events:
+    for event in stats_obj.events:
         osd = event['data'].group(1)
         t = datetime.datetime.strptime(event['data'].group(2),
                                        '%Y-%m-%d %H:%M:%S.%f')
@@ -46,6 +22,7 @@ def parse():
         else:
             suicide_stats[osd] = {'suicides': [(t, timeout)],
                                   'host': event['host']}
+
 
 def get_osds_by_host():
     hosts = {}
@@ -98,8 +75,13 @@ if __name__ == "__main__":
     parser.add_argument('--path', type=str, default=None, required=True)
     args = parser.parse_args()
 
-    get(args.path)
-    parse()
+    keywords = '"had suicide timed out"'
+    filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9][0-9]"
+              "[0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:[0-9]+:"
+              "[0-9]+\.[0-9]*).+had suicide timed out "
+              "after (.+)")
+
+    parse(get(args.path, keywords, filter))
 
     print "%s OSDs" % len(suicide_stats)
 

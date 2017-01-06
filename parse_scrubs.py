@@ -3,7 +3,7 @@ import argparse
 import datetime
 import re
 
-from subprocess import check_output, CalledProcessError
+from common import get
 
 MONTH = '11'
 aggrs_by_osd = {}
@@ -14,36 +14,15 @@ mins = []
 maxs = []
 avgs = []
 date_avgs = []
-events = []
 
 
-def get(path):
-    out = check_output(['find', path, '-type', 'f', '-name', 'ceph*'])
-    paths = [path for path in out.split('\n')
-             if re.search('var/log/ceph/ceph-osd.+', path)]
-    for path in paths:
-        try:
-            cmd = ['zgrep', '-EHi', '" scrub | deep-scrub "', path]
-            out = check_output(' '.join(cmd), shell=True)
-            for line in out.split('\n'):
-                if not re.search(r":\s+-[0-9]*>", line):
-                    res = re.search(r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
-                                    "[0-9][0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:"
-                                    "[0-9]+:[0-9]+\.[0-9]*).+ : ([0-9]*\."
-                                    "[0-9]*[a-z]*.+)", line)
-                    if res:
-                        events.append(res)
+def parse(stats_obj):
+    for event in stats_obj.events:
+        data = event['data']
+        osd = data.group(1)
+        t = datetime.datetime.strptime(data.group(2), '%Y-%m-%d %H:%M:%S.%f')
 
-        except CalledProcessError:
-            pass
-
-
-def parse():
-    for event in events:
-        osd = event.group(1)
-        t = datetime.datetime.strptime(event.group(2), '%Y-%m-%d %H:%M:%S.%f')
-
-        info = event.group(3)
+        info = data.group(3)
         pg = info.split()[0]
         action = info.split()[1]
         status = info.split()[2]
@@ -58,15 +37,16 @@ def parse():
         if pg not in scrub_stats[osd]['pgs']:
             scrub_stats[osd]['pgs'].update(empty_pg)
 
+        _pg = scrub_stats[osd]['pgs'][pg]
         if status == "starts":
-            scrub_stats[osd]['pgs'][pg]['actions'][action]['start'] = t
+            _pg['actions'][action]['start'] = t
         elif status == "ok":
-            scrub_stats[osd]['pgs'][pg]['actions'][action]['end'] = t
-            info = scrub_stats[osd]['pgs'][pg]['actions'][action]
+            _pg['actions'][action]['end'] = t
+            info = _pg['actions'][action]
             if all(info):
-                actions = scrub_stats[osd]['pgs'][pg]['shelved_actions'][action]
+                actions = _pg['shelved_actions'][action]
                 actions.append(info)
-                scrub_stats[osd]['pgs'][pg]['actions'][action] = empty
+                _pg['actions'][action] = empty
         else:
             raise Exception("Unknown status '%s'" % (status))
 
@@ -96,8 +76,12 @@ if __name__ == "__main__":
     parser.add_argument('--path', type=str, default=None, required=True)
     args = parser.parse_args()
 
-    get(args.path)
-    parse()
+    filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
+              "[0-9][0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:"
+              "[0-9]+:[0-9]+\.[0-9]*).+ : ([0-9]*\."
+              "[0-9]*[a-z]*.+)")
+    keywords = '" scrub | deep-scrub "'
+    parse(get(args.path, keywords, filter))
     print "%s OSDs" % len(scrub_stats)
 
     PGs = []
@@ -108,15 +92,17 @@ if __name__ == "__main__":
 
     scrubs = 0
     for osd in scrub_stats:
-        for pg in scrub_stats[osd]['pgs']:
-            scrubs += len(scrub_stats[osd]['pgs'][pg]['shelved_actions']['scrub'])
+        pgs = scrub_stats[osd]['pgs']
+        for pg in pgs:
+            scrubs += len(pgs[pg]['shelved_actions']['scrub'])
 
     print "%s scrubs" % scrubs
 
     deepscrubs = 0
     for osd in scrub_stats:
-        for pg in scrub_stats[osd]['pgs']:
-            deepscrubs += len(scrub_stats[osd]['pgs'][pg]['shelved_actions']['deep-scrub'])
+        pgs = scrub_stats[osd]['pgs']
+        for pg in pgs:
+            scrubs += len(pgs[pg]['shelved_actions']['deep-scrub'])
 
     print "%s deep-scrubs" % deepscrubs
 
@@ -133,8 +119,9 @@ if __name__ == "__main__":
             return "%s(%s)" % (highest[1], highest[0])
         else:
             total = 0
-            for pg in scrub_stats[osd]['pgs']:
-                for s in scrub_stats[osd]['pgs'][pg]['shelved_actions'][action]:
+            pgs = scrub_stats[osd]['pgs']
+            for pg in pgs:
+                for s in pgs[pg]['shelved_actions'][action]:
                     _day = s['end'].day
                     _month = s['end'].month
                     if str(_month) == str(month) and str(_day) == str(day):

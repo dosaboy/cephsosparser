@@ -1,5 +1,6 @@
 #!/bin/bash -eu
-report=${1:-"report.txt"}
+datapath=$1
+report=${2:-"report.txt"}
 
 echo -n "Parsing smart recovery data..."
 cat << EOF > $report
@@ -18,7 +19,7 @@ cat << EOF >> $report
 ========================================================
 
 EOF
-./parse_scrubs.py --path ../123369 >> $report
+./parse_scrubs.py --path $datapath >> $report
 echo "done"
 
 echo -n "Parsing slow request data..."
@@ -28,7 +29,7 @@ cat << EOF >> $report
 ========================================================
 
 EOF
-./parse_slow_requests.py --path ../123369 >> $report
+./parse_slow_requests.py --path $datapath >> $report
 echo "done"
 
 echo -n "Parsing suicide timeout data..."
@@ -38,7 +39,7 @@ cat << EOF >> $report
 ========================================================
 
 EOF
-./parse_suicides.py --path ../123369 >> $report
+./parse_suicides.py --path $datapath >> $report
 echo "done"
 
 echo -e "\nReport written to $report."

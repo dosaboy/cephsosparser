@@ -3,11 +3,10 @@ import argparse
 import datetime
 import re
 
-from common import avg, get_hostname_from_path, uniq
-from subprocess import check_output, CalledProcessError
+from common import avg, uniq, get
+
 
 MAX_TOPS = 10
-events = []
 aggrs_by_osd = {}
 aggrs_by_date = {}
 aggrs_by_host = {}
@@ -20,32 +19,9 @@ date_avgs = []
 date_maxs = []
 
 
-def get(path):
-    out = check_output(['find', path, '-type', 'f', '-name', 'ceph*'])
-    paths = [path for path in out.split('\n')
-                if re.search('var/log/ceph/ceph-osd.+', path)]
-    for path in paths:
-        hostname = get_hostname_from_path(path)
-        try:
-
-            cmd = ['zgrep', '-EHi', '"slow requests"', path]
-            out = check_output(' '.join(cmd), shell=True)
-            for line in out.split('\n'):
-                if not re.search(r":\s+-[0-9]*>", line):
-                    res = re.search(r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
-                                    "[0-9][0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:"
-                                    "[0-9]+:[0-9]+\.[0-9]*)\s.+blocked for > "
-                                    "([0-9\.]*) secs", line)
-                    if res:
-                        events.append({'host': hostname, 'data': res})
-
-        except CalledProcessError:
-            pass
-
-
-def parse():
+def parse(stats_obj):
     global osd_stats
-    for event in events:
+    for event in stats_obj.events:
         osd = event['data'].group(1)
         t = datetime.datetime.strptime(event['data'].group(2),
                                        '%Y-%m-%d %H:%M:%S.%f')
@@ -56,6 +32,7 @@ def parse():
             osd_stats[osd] = {'host': event['host'],
                               'slow_requests': [(t,
                                                  float(event['data'].group(3)))]}
+
 
 def keep_top_avgs(osd, val):
     global avgs
@@ -157,6 +134,7 @@ def total_slow_requests():
 
     return total
 
+
 def get_osds_by_host():
     hosts = {}
     for osd in osd_stats:
@@ -177,8 +155,12 @@ if __name__ == "__main__":
     parser.add_argument('--path', type=str, default=None, required=True)
     args = parser.parse_args()
 
-    get(args.path)
-    parse()
+    filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
+              "[0-9][0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:"
+              "[0-9]+:[0-9]+\.[0-9]*)\s.+blocked for > "
+              "([0-9\.]*) secs")
+    keywords = '"slow requests"'
+    parse(get(args.path, keywords, filter))
     osds = list(osd_stats.keys())
     osds = sorted(osds, key=lambda s: float(s.partition('.')[2]))
     print "Slow request stats for %s OSDs" % len(osds)
@@ -240,13 +222,11 @@ if __name__ == "__main__":
         data = ["    %s" % osd for osd in osds]
         print "%s" % '\n'.join(data)
 
-
     print "\nTop %s:" % MAX_TOPS
     data = ["\n      %s - %s (%s)" %
             (e[0], e[1], ' '.join(uniq([str(a[0]) for a in aggrs_by_osd[e[0]]
                                         if e[1] == a[1]]))) for e in mins]
     print "\n    Min Wait (s): %s" % ' '.join(data)
-
 
     data = ["\n      %s - %s (%s)" %
             (e[0], e[1], ' '.join(uniq([str(a[0]) for a in aggrs_by_osd[e[0]]
