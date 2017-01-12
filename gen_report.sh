@@ -1,6 +1,7 @@
 #!/bin/bash -eu
 datapath=$1
 report=${2:-"report.txt"}
+MONTH=11
 
 echo -n "Parsing smart recovery data..."
 cat << EOF > $report
@@ -19,7 +20,7 @@ cat << EOF >> $report
 ========================================================
 
 EOF
-./parse_scrubs.py --path $datapath >> $report
+./parse_scrubs.py --month $MONTH --path $datapath >> $report
 echo "done"
 
 echo -n "Parsing slow request data..."
@@ -39,7 +40,7 @@ cat << EOF >> $report
 ========================================================
 
 EOF
-./parse_suicides.py --path $datapath >> $report
+./parse_suicides.py --month $MONTH --path $datapath >> $report
 echo "done"
 
 echo -e "\nReport written to $report."
