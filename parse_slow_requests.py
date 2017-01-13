@@ -187,7 +187,7 @@ if __name__ == "__main__":
             _collection[d].append(a[1])
 
     month_avgs = sorted([(d, avg(v)) for d, v in _collection.iteritems()],
-                        key=lambda e: e[0])
+                        key=lambda e: int(e[0]))
 
     _collection = {}
     for a in collection.date_avgs:
@@ -198,7 +198,7 @@ if __name__ == "__main__":
             _collection[d].append(a[1])
 
     day_avgs = sorted([(d, avg(v)) for d, v in _collection.iteritems()],
-                      key=lambda e: e[0])
+                      key=lambda e: int(e[0]))
 
     _collection = {}
     for a in collection.date_maxs:
@@ -209,7 +209,7 @@ if __name__ == "__main__":
             _collection[d].append(a[1])
 
     day_maxs = sorted([(d, max(v)) for d, v in _collection.iteritems()],
-                      key=lambda e: e[0])
+                      key=lambda e: int(e[0]))
 
     hosts = collection.get_osds_by_host()
     for host in hosts:
@@ -218,22 +218,34 @@ if __name__ == "__main__":
         data = ["    %s" % osd for osd in osds]
         print "%s" % '\n'.join(data)
 
+    aggrs_by_osd = collection.aggrs_by_osd
     print "\nTop %s:" % collection.MAX_TOPS
     data = ["\n      %s - %s (%s)" %
-            (e[0], e[1], ' '.join(uniq([str(a[0]) for a in collection.aggrs_by_osd[e[0]]
+            (e[0], e[1], ' '.join(uniq([str(a[0]) for a in aggrs_by_osd[e[0]]
                                         if e[1] == a[1]]))) for e in collection.mins]
     print "\n    Min Wait (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s (%s)" %
-            (e[0], e[1], ' '.join(uniq([str(a[0]) for a in collection.aggrs_by_osd[e[0]]
+            (e[0], e[1], ' '.join(uniq([str(a[0]) for a in aggrs_by_osd[e[0]]
                                         if e[1] == a[1]]))) for e in collection.maxs]
+    data = sorted(data,
+                  key=lambda v: float(re.search(".+ - ([0-9]*\.[0-9]*).+", v).group(1)),
+                  reverse=True)
     print "\n    Max Wait (s): %s" % ' '.join(data)
 
+    aggrs_by_host = collection.aggrs_by_host
+    for host in aggrs_by_host:
+        aggrs_by_host[host] = sum(aggrs_by_host[host])
+
     data = ["\n      %s - %d" %
-            (host, int(sum(collection.aggrs_by_host[host]))) for host in collection.aggrs_by_host]
-    print "\n    Wait By Host (s): %s" % ' '.join(data)
+            (host, aggrs_by_host[host]) for host in aggrs_by_host]
+    data = sorted(data, key=lambda v: int(v.partition(' - ')[2]),
+                  reverse=True)
+    print "\n    Total Wait By Host (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s" % (e[0], e[1]) for e in collection.avgs]
+    data = sorted(data, key=lambda v: float(v.partition(' - ')[2]),
+                  reverse=True)
     print "\n    Avg Wait (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s" % (e[0], e[1]) for e in month_avgs]
