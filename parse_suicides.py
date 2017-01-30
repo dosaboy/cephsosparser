@@ -10,6 +10,7 @@ from sphinx.application import events
 class CephSuicideStatsCollection(object):
     def __init__(self, args, events):
         self.suicide_stats = {}
+        self.thread_index = {}
         self.args = args
         self.month = args.month
         self.events = events
@@ -19,12 +20,16 @@ class CephSuicideStatsCollection(object):
             osd = event['data'].group(1)
             t = datetime.datetime.strptime(event['data'].group(2),
                                            '%Y-%m-%d %H:%M:%S.%f')
-            timeout = event['data'].group(3)
+            thread = event['data'].group(3)
+            timeout = event['data'].group(4)
 
+            suicide = {'timestamp': t,
+                       'timeout': timeout,
+                       'thread': thread}
             if osd in self.suicide_stats:
-                self.suicide_stats[osd]['suicides'].append((t, timeout))
+                self.suicide_stats[osd]['suicides'].append(suicide)
             else:
-                self.suicide_stats[osd] = {'suicides': [(t, timeout)],
+                self.suicide_stats[osd] = {'suicides': [suicide],
                                            'host': event['host']}
 
     def get_osds_by_host(self):
@@ -46,7 +51,7 @@ class CephSuicideStatsCollection(object):
         day_counters = {}
         for osd in self.suicide_stats:
             for s in self.suicide_stats[osd]['suicides']:
-                t = s[0]
+                t = s['timestamp']
                 if str(t.month) == args.month:
                     if t.day not in day_counters:
                         day_counters[t.day] = {}
@@ -61,6 +66,14 @@ class CephSuicideStatsCollection(object):
 
                     day_counters[t.day][osd] += 1
 
+                if osd not in self.thread_index:
+                    self.thread_index[osd] = {}
+
+                if t.day not in self.thread_index[osd]:
+                    self.thread_index[osd][t.day] = []
+
+                self.thread_index[osd][t.day].append((t, s['thread']))
+
         for day in day_counters:
             _max = None
             for osd in day_counters[day]:
@@ -70,6 +83,10 @@ class CephSuicideStatsCollection(object):
             stats[day]['maxosd'] = _max[0]
 
         return sorted(stats.keys()), stats
+
+    def get_osd_threads(self, day, osd):
+        return [t[1] for t in sorted(collection.thread_index[osd][day],
+                                     key=lambda e: e[0])]
 
 
 if __name__ == "__main__":
@@ -81,7 +98,7 @@ if __name__ == "__main__":
     keywords = '"had suicide timed out"'
     filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9][0-9]"
               "[0-9][0-9]-[0-9]+-[0-9]+\s[0-9]+:[0-9]+:"
-              "[0-9]+\.[0-9]*).+had suicide timed out "
+              "[0-9]+\.[0-9]*)\s*([a-z0-9]*)\s*.+had suicide timed out "
               "after (.+)")
 
     collection = CephSuicideStatsCollection(args,
@@ -96,9 +113,10 @@ if __name__ == "__main__":
     print "%s Suicides" % len(suicides)
 
     keys, stats = collection.get_stats()
-    data = ["\n    %s - %s (maxosd=%s, host=%s)" %
+    data = ["\n    %s - %s (maxosd=%s, host=%s, threads=%s)" %
             (k, stats[k]['count'], stats[k]['maxosd'],
-             collection.suicide_stats[stats[k]['maxosd']]['host'])
+             collection.suicide_stats[stats[k]['maxosd']]['host'],
+             collection.get_osd_threads(k, stats[k]['maxosd']))
             for k in keys]
     print "\n  No. suicides by day: %s" % ' '.join(data)
 
