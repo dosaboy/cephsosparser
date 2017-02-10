@@ -1,10 +1,31 @@
+# Author: Edward Hope-Morley (opentastic@gmail.com)
+# Description: Ceph log parser
+# Copyright (C) 2016 Edward Hope-Morley
+#
+# License:
+#
+# This file is part of cephsosparser.
+#
+# cephsosparser is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cephsosparser is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cephsosparser.  If not, see <http://www.gnu.org/licenses/>.
+import os
 import re
 
 from subprocess import check_output, CalledProcessError
 
 
 def get_hostname_from_path(path):
-    hostname = 'unknown'
+    hostname = '<unknownhost>'
     res = re.search(r".+sosreport-(.+)\.[0-9]+-[0-9]+/var.+", path)
     if res:
         hostname = res.group(1)
@@ -22,9 +43,14 @@ def avg(vals):
 
 def get(path, keywords, filter):
     events = []
-    out = check_output(['find', path, '-type', 'f', '-name', 'ceph*'])
-    paths = [path for path in out.split('\n')
-             if re.search('var/log/ceph/ceph-osd.+', path)]
+
+    if os.path.isfile(path):
+        paths = [path]
+    else:
+        out = check_output(['find', path, '-type', 'f', '-name', 'ceph*'])
+        paths = [path for path in out.split('\n')
+                 if re.search('var/log/ceph/ceph-osd.+', path)]
+
     for path in paths:
         hostname = get_hostname_from_path(path)
         try:

@@ -43,15 +43,15 @@ done
 if [ -z "$DATAPATH" ] || [ -z "$MONTH" ]; then usage; exit 1; fi
 
 
-echo -n "Parsing smart recovery data..."
-cat << EOF > $REPORT
-=======================================================
-================= Smart Recovery Data =================
-=======================================================
-
-EOF
-./parse_smart_data.py >> $REPORT
-echo "done"
+#echo -n "Parsing smart recovery data..."
+#cat << EOF > $REPORT
+#=======================================================
+#================= Smart Recovery Data =================
+#=======================================================
+#
+#EOF
+#./parse_smart_data.py >> $REPORT
+#echo "done"
 
 echo -n "Parsing scrub data..."
 cat << EOF >> $REPORT

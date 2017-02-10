@@ -1,4 +1,25 @@
 #!/usr/bin/python2
+# Author: Edward Hope-Morley (opentastic@gmail.com)
+# Description: Ceph log parser
+# Copyright (C) 2016 Edward Hope-Morley
+#
+# License:
+#
+# This file is part of cephsosparser.
+#
+# cephsosparser is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cephsosparser is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cephsosparser.  If not, see <http://www.gnu.org/licenses/>.
+
 import argparse
 import datetime
 import re
@@ -19,8 +40,11 @@ class CephScrubStatsCollection(object):
         self.avgs = []
         self.date_avgs = []
         self.events = events
+        self.repeats = []
 
     def parse(self):
+        last_completed = {}
+
         for event in self.events:
             data = event['data']
             osd = data.group(1)
@@ -50,6 +74,19 @@ class CephScrubStatsCollection(object):
                 _pg['actions'][action]['end'] = t
                 info = _pg['actions'][action]
                 if all(info):
+                    # Track repeats - http://tracker.ceph.com/issues/16474
+                    if action == 'deep-scrub':
+                        if osd not in last_completed:
+                            last_completed[osd] = {'pg': pg, 'count': 1}
+                        elif last_completed[osd]['pg'] == pg:
+                            last_completed[osd]['count'] += 1
+                        else:
+                            if last_completed[osd]['count'] > 1:
+                                count = last_completed[osd]['count']
+                                self.repeats.append({'osd': osd, 'pg': pg,
+                                                     'count': count})
+                            last_completed[osd] = {'pg': pg, 'count': 1}
+
                     actions = _pg['shelved_actions'][action]
                     actions.append(info)
                     _pg['actions'][action] = empty
@@ -152,5 +189,13 @@ if __name__ == "__main__":
              len(set(stats[k]['pgs'])),
              osd_most_pg_scrubs(k, args.month, 'deep-scrub')) for k in keys]
     print "\n  No. deep-scrubs by day: %s" % ' '.join(data)
+
+    print "\n  Repeated deep-scrubs:"
+    if collection.repeats:
+        for r in collection.repeats:
+            print "    %s repeated %s times on osd %s" % (r['pg'], r['count'],
+                                                          r['osd'])
+    else:
+        print "No repeated deep-scrubs detected"
 
     print ""
