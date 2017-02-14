@@ -22,18 +22,15 @@
 
 import argparse
 import datetime
-import re
 
 from common import get
-from sphinx.application import events
 
 
 class CephSuicideStatsCollection(object):
-    def __init__(self, args, events):
+    def __init__(self, month, events):
         self.suicide_stats = {}
         self.thread_index = {}
-        self.args = args
-        self.month = args.month
+        self.month = month
         self.events = events
 
     def parse(self):
@@ -73,7 +70,7 @@ class CephSuicideStatsCollection(object):
         for osd in self.suicide_stats:
             for s in self.suicide_stats[osd]['suicides']:
                 t = s['timestamp']
-                if str(t.month) == args.month:
+                if int(t.month) == self.month:
                     if t.day not in day_counters:
                         day_counters[t.day] = {}
 
@@ -113,7 +110,7 @@ class CephSuicideStatsCollection(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default=None, required=True)
-    parser.add_argument('--month', type=str, default=None, required=True)
+    parser.add_argument('--month', type=int, default=None, required=True)
     args = parser.parse_args()
 
     keywords = '"had suicide timed out"'
@@ -122,23 +119,22 @@ if __name__ == "__main__":
               "[0-9]+\.[0-9]*)\s*([a-z0-9]*)\s*.+had suicide timed out "
               "after (.+)")
 
-    collection = CephSuicideStatsCollection(args,
+    collection = CephSuicideStatsCollection(args.month,
                                             get(args.path, keywords, filter))
     collection.parse()
 
-    print "%s OSDs" % len(collection.suicide_stats)
-
+    print "OSD Suicide stats"
     suicides = []
     for osd in collection.suicide_stats:
         suicides += collection.suicide_stats[osd]['suicides']
-    print "%s Suicides" % len(suicides)
+    print "Total suicides: %s" % len(suicides)
 
     keys, stats = collection.get_stats()
     data = ["\n    %s - %s (maxosd=%s, host=%s, threads=%s)" %
             (k, stats[k]['count'], stats[k]['maxosd'],
              collection.suicide_stats[stats[k]['maxosd']]['host'],
              collection.get_osd_threads(k, stats[k]['maxosd']))
-            for k in keys]
+            for k in keys] or ["\n    none"]
     print "\n  No. suicides by day: %s" % ' '.join(data)
 
     print ""

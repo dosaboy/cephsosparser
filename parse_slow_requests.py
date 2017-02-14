@@ -28,8 +28,7 @@ from common import avg, uniq, get
 
 
 class CephSlowRequestStatsCollection(object):
-    def __init__(self, args, events):
-        self.args = args
+    def __init__(self, events):
         self.events = events
         self.MAX_TOPS = 10
         self.aggrs_by_osd = {}
@@ -173,8 +172,7 @@ if __name__ == "__main__":
               "([0-9\.]*) secs")
     keywords = '"slow requests"'
 
-    collection = CephSlowRequestStatsCollection(args,
-                                                get(args.path, keywords,
+    collection = CephSlowRequestStatsCollection(get(args.path, keywords,
                                                     filter))
     collection.parse()
 
@@ -262,22 +260,27 @@ if __name__ == "__main__":
             (host, aggrs_by_host[host]) for host in aggrs_by_host]
     data = sorted(data, key=lambda v: int(v.partition(' - ')[2]),
                   reverse=True)
+    data = data or ["\n    none"]
     print "\n    Total Wait By Host (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s" % (e[0], e[1]) for e in collection.avgs]
     data = sorted(data, key=lambda v: float(v.partition(' - ')[2]),
                   reverse=True)
+    data = data or ["\n    none"]
     print "\n    Avg Wait (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s" % (e[0], e[1]) for e in month_avgs]
+    data = data or ["\n    none"]
     print "\n    Avg Wait By Month (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s (max:%s)" %
             (e[0], e[1], collection.day_highest_osd(e[0], 'avg')) for e in day_avgs]
+    data = data or ["\n    none"]
     print "\n    Avg Wait By Day (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s (max:%s)" %
             (e[0], e[1], collection.day_highest_osd(e[0], 'max')) for e in day_maxs]
+    data = data or ["\n    none"]
     print "\n    Max Wait By Day (s): %s" % ' '.join(data)
 
     print ''

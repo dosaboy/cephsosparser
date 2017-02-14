@@ -21,20 +21,19 @@
 # along with cephsosparser.  If not, see <http://www.gnu.org/licenses/>.
 
 import argparse
+import copy
 import datetime
-import re
 
 from common import get
 
 
 class CephScrubStatsCollection(object):
-    def __init__(self, args, events):
-        self.args = args
-        self.month = args.month
+    def __init__(self, month, events):
+        self.month = month
         self.aggrs_by_osd = {}
         self.aggrs_by_date = {}
         self.epoc = None
-        self.scrub_stats = {}
+        self.scrub_stats = {'osds': {}, 'pgs': {}}
         self.mins = []
         self.maxs = []
         self.avgs = []
@@ -57,23 +56,35 @@ class CephScrubStatsCollection(object):
             status = info.split()[2]
 
             empty = {'start': None, 'end': None}
-            empty_actions = {'scrub': empty, 'deep-scrub': empty}
+            empty_actions = {'scrub': empty,
+                             'deep-scrub': copy.deepcopy(empty)}
             empty_pg = {pg: {'actions': empty_actions,
                              'shelved_actions': {'deep-scrub': [],
                                                  'scrub': []}}}
-            if osd not in self.scrub_stats:
-                self.scrub_stats[osd] = {'pgs': empty_pg}
 
-            if pg not in self.scrub_stats[osd]['pgs']:
-                self.scrub_stats[osd]['pgs'].update(empty_pg)
+            if osd not in self.scrub_stats['osds']:
+                self.scrub_stats['osds'][osd] = {'pgs': empty_pg}
+            elif pg not in self.scrub_stats['osds'][osd]['pgs']:
+                self.scrub_stats['osds'][osd]['pgs'].update(empty_pg)
 
-            _pg = self.scrub_stats[osd]['pgs'][pg]
+            _pg = self.scrub_stats['osds'][osd]['pgs'][pg]
+            if pg not in self.scrub_stats['pgs']:
+                self.scrub_stats['pgs'][pg] = {osd: _pg}
+            else:
+                self.scrub_stats['pgs'][pg][osd] = _pg
+
+            pg_action = _pg['actions'][action]
             if status == "starts":
-                _pg['actions'][action]['start'] = t
+                pg_action['start'] = t
             elif status == "ok":
-                _pg['actions'][action]['end'] = t
-                info = _pg['actions'][action]
-                if all(info):
+                if not pg_action['start']:
+                    # Ignore this event since it probably started before the
+                    # beginning of the current analysis window
+                    continue
+
+                pg_action['end'] = t
+                pg_action['length'] = t - pg_action['start']
+                if all(pg_action):
                     # Track repeats - http://tracker.ceph.com/issues/16474
                     if action == 'deep-scrub':
                         if osd not in last_completed:
@@ -88,28 +99,37 @@ class CephScrubStatsCollection(object):
                             last_completed[osd] = {'pg': pg, 'count': 1}
 
                     actions = _pg['shelved_actions'][action]
-                    actions.append(info)
-                    _pg['actions'][action] = empty
+                    actions.append(pg_action)
+                    _pg['actions'][action] = copy.deepcopy(empty)
+
             else:
                 raise Exception("Unknown status '%s'" % (status))
 
     def get_stats(self, action):
         stats = {}
-        for osd in self.scrub_stats:
-            pgs = self.scrub_stats[osd]['pgs']
+        for osd in self.scrub_stats['osds']:
+            pgs = self.scrub_stats['osds'][osd]['pgs']
             for pg in pgs:
                 for s in pgs[pg]['shelved_actions'][action]:
-                    day = s['end'].day
-                    month = s['end'].month
-                    if str(month) == self.month:
+                    action_start = s['start']
+                    month = action_start.month
+                    if int(month) == self.month:
+                        day = action_start.day
                         if day in stats:
                             stats[day]['count'] += 1
                             stats[day]['osds'].append(osd)
                             stats[day]['pgs'].append(pg)
+                            length = {'pg': pg, 'length': s['length']}
+                            current_length = stats[day]['max_length']
+                            if not current_length:
+                                stats[day]['max_length'] = length
+                            elif current_length['length'] < s['length']:
+                                stats[day]['max_length'] = length
                         else:
                             stats[day] = {'count': 1,
                                           'osds': [osd],
-                                          'pgs': [pg]}
+                                          'pgs': [pg],
+                                          'max_length': None}
 
         return sorted(stats.keys()), stats
 
@@ -117,7 +137,7 @@ class CephScrubStatsCollection(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default=None, required=True)
-    parser.add_argument('--month', type=str, default=None, required=True)
+    parser.add_argument('--month', type=int, default=None, required=True)
     args = parser.parse_args()
 
     filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
@@ -125,31 +145,26 @@ if __name__ == "__main__":
               "[0-9]+:[0-9]+\.[0-9]*).+ : ([0-9]*\."
               "[0-9]*[a-z]*.+)")
     keywords = '" scrub | deep-scrub "'
-    collection = CephScrubStatsCollection(args,
+    collection = CephScrubStatsCollection(args.month,
                                           get(args.path, keywords, filter))
     collection.parse()
 
-    print "%s OSDs" % len(collection.scrub_stats)
-
-    PGs = []
-    for osd in collection.scrub_stats:
-        PGs += collection.scrub_stats[osd]['pgs'].keys()
-
-    print "%s PGs" % len(set(PGs))
+    print "%s OSDs scrubbed" % len(collection.scrub_stats['osds'])
+    print "%s PGs scrubbed" % len(collection.scrub_stats['pgs'])
 
     scrubs = 0
-    for osd in collection.scrub_stats:
-        pgs = collection.scrub_stats[osd]['pgs']
-        for pg in pgs:
-            scrubs += len(pgs[pg]['shelved_actions']['scrub'])
+    for pg in collection.scrub_stats['pgs']:
+        for pg_osd in collection.scrub_stats['pgs'][pg]:
+            _pg = collection.scrub_stats['pgs'][pg]
+            scrubs += len(_pg[pg_osd]['shelved_actions']['scrub'])
 
     print "%s scrubs" % scrubs
 
     deepscrubs = 0
-    for osd in collection.scrub_stats:
-        pgs = collection.scrub_stats[osd]['pgs']
-        for pg in pgs:
-            deepscrubs += len(pgs[pg]['shelved_actions']['deep-scrub'])
+    for pg in collection.scrub_stats['pgs']:
+        for pg_osd in collection.scrub_stats['pgs'][pg]:
+            _pg = collection.scrub_stats['pgs'][pg]
+            deepscrubs += len(_pg[pg_osd]['shelved_actions']['deep-scrub'])
 
     print "%s deep-scrubs" % deepscrubs
 
@@ -158,7 +173,7 @@ if __name__ == "__main__":
     def osd_most_pg_scrubs(day, month, action, osd=None):
         highest = None
         if not osd:
-            for osd in collection.scrub_stats:
+            for osd in collection.scrub_stats['osds']:
                 stat = osd_most_pg_scrubs(day, month, action, osd)
                 if not highest or highest[0] < stat:
                     highest = [stat, osd]
@@ -166,28 +181,51 @@ if __name__ == "__main__":
             return "%s(%s)" % (highest[1], highest[0])
         else:
             total = 0
-            pgs = collection.scrub_stats[osd]['pgs']
+            pgs = collection.scrub_stats['osds'][osd]['pgs']
             for pg in pgs:
                 for s in pgs[pg]['shelved_actions'][action]:
                     _day = s['end'].day
                     _month = s['end'].month
-                    if str(_month) == str(month) and str(_day) == str(day):
+                    if int(_month) == int(month) and int(_day) == int(day):
                         total += 1
 
             return total
 
+    def day_longest_deepscrub(day, month, action, osd=None):
+        days = {}
+        for pg in collection.scrub_stats['pgs']:
+            for pg_osd in collection.scrub_stats['pgs'][pg]:
+                _pg = collection.scrub_stats['pgs'][pg][pg_osd]
+                for s in _pg['shelved_actions']['deep-scrub']:
+                    if day != s['start'].day:
+                        continue
+
+                    if s['end'].day not in days:
+                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
+                    elif days[s['end'].day]['length'] < s['length']:
+                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
+
+        _day = days.get(day, {'pg': 'n/a', 'length': 'n/a'})
+        return "pg=%s,length=%s" % (_day['pg'], _day['length'])
+
     keys, stats = collection.get_stats('scrub')
-    data = ["\n    %s - %s (osds:%s, pgs:%s, mostscrubs:%s)" %
+    data = ["\n    %s - %s scrubs (osds:%s, pgs:%s, mostscrubs:%s, "
+            "longest:%s))" %
             (k, stats[k]['count'], len(set(stats[k]['osds'])),
              len(set(stats[k]['pgs'])),
-             osd_most_pg_scrubs(k, args.month, 'scrub')) for k in keys]
+             osd_most_pg_scrubs(k, args.month, 'scrub'),
+             day_longest_deepscrub(k, args.month, 'scrub')) for k in keys]
+    data = data or ["\n    none"]
     print "\n  No. scrubs by day: %s" % ' '.join(data)
 
     keys, stats = collection.get_stats('deep-scrub')
-    data = ["\n    %s - %s (osds:%s, pgs:%s, mostscrubs:%s)" %
+    data = ["\n    %s - %s deep-scrubs (osds:%s, pgs:%s, mostscrubs:%s, "
+            "longest:%s)" %
             (k, stats[k]['count'], len(set(stats[k]['osds'])),
              len(set(stats[k]['pgs'])),
-             osd_most_pg_scrubs(k, args.month, 'deep-scrub')) for k in keys]
+             osd_most_pg_scrubs(k, args.month, 'deep-scrub'),
+             day_longest_deepscrub(k, args.month, 'deep-scrub')) for k in keys]
+    data = data or ["\n    none"]
     print "\n  No. deep-scrubs by day: %s" % ' '.join(data)
 
     print "\n  Repeated deep-scrubs:"
@@ -196,6 +234,6 @@ if __name__ == "__main__":
             print "    %s repeated %s times on osd %s" % (r['pg'], r['count'],
                                                           r['osd'])
     else:
-        print "No repeated deep-scrubs detected"
+        print "    No repeated deep-scrubs detected"
 
     print ""
