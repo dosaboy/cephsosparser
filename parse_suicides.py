@@ -123,10 +123,12 @@ if __name__ == "__main__":
                                             get(args.path, keywords, filter))
     collection.parse()
 
-    print "OSD Suicide stats"
+    print "OSD Suicide stats for month %s" % (args.month)
     suicides = []
+    month = int(args.month)
     for osd in collection.suicide_stats:
-        suicides += collection.suicide_stats[osd]['suicides']
+        _suicides = collection.suicide_stats[osd]['suicides']
+        suicides += [s for s in _suicides if s['timestamp'].month == month]
     print "Total suicides: %s" % len(suicides)
 
     keys, stats = collection.get_stats()

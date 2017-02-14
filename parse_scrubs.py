@@ -149,8 +149,24 @@ if __name__ == "__main__":
                                           get(args.path, keywords, filter))
     collection.parse()
 
-    print "%s OSDs scrubbed" % len(collection.scrub_stats['osds'])
-    print "%s PGs scrubbed" % len(collection.scrub_stats['pgs'])
+    osds = []
+    pgs = []
+    for pg in collection.scrub_stats['pgs']:
+        for pg_osd in collection.scrub_stats['pgs'][pg]:
+            _pg = collection.scrub_stats['pgs'][pg]
+            for action in ['scrub', 'deep-scrub']:
+                for event in _pg[pg_osd]['shelved_actions'][action]:
+                    if event['start'].month == args.month:
+                        if pg_osd not in osds:
+                            osds.append(pg_osd)
+
+                        if pg not in pgs:
+                            pgs.append(pg)
+
+    print "\nScrubbing stats for month %s:\n" % (args.month)
+
+    print "%s OSDs scrubbed" % len(osds)
+    print "%s PGs scrubbed" % len(pgs)
 
     scrubs = 0
     for pg in collection.scrub_stats['pgs']:
@@ -167,8 +183,6 @@ if __name__ == "__main__":
             deepscrubs += len(_pg[pg_osd]['shelved_actions']['deep-scrub'])
 
     print "%s deep-scrubs" % deepscrubs
-
-    print "\nStats for the last month (%s):" % (args.month)
 
     def osd_most_pg_scrubs(day, month, action, osd=None):
         highest = None

@@ -42,6 +42,7 @@ done
 
 if [ -z "$DATAPATH" ] || [ -z "$MONTH" ]; then usage; exit 1; fi
 
+rm -f $REPORT
 
 #echo -n "Parsing smart recovery data..."
 #cat << EOF > $REPORT
