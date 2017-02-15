@@ -241,14 +241,17 @@ if __name__ == "__main__":
     print "\nTop %s:" % collection.MAX_TOPS
     data = ["\n      %s - %s (%s)" %
             (e[0], e[1], ' '.join(uniq([str(a[0]) for a in aggrs_by_osd[e[0]]
-                                        if e[1] == a[1]]))) for e in collection.mins]
+                                        if e[1] == a[1]])))
+            for e in collection.mins]
     print "\n    Min Wait (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s (%s)" %
             (e[0], e[1], ' '.join(uniq([str(a[0]) for a in aggrs_by_osd[e[0]]
-                                        if e[1] == a[1]]))) for e in collection.maxs]
+                                        if e[1] == a[1]])))
+            for e in collection.maxs]
     data = sorted(data,
-                  key=lambda v: float(re.search(".+ - ([0-9]*\.[0-9]*).+", v).group(1)),
+                  key=lambda v:
+                  float(re.search(".+ - ([0-9]*\.[0-9]*).+", v).group(1)),
                   reverse=True)
     print "\n    Max Wait (s): %s" % ' '.join(data)
 
@@ -274,12 +277,14 @@ if __name__ == "__main__":
     print "\n    Avg Wait By Month (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s (max:%s)" %
-            (e[0], e[1], collection.day_highest_osd(e[0], 'avg')) for e in day_avgs]
+            (e[0], e[1], collection.day_highest_osd(e[0], 'avg'))
+            for e in day_avgs]
     data = data or ["\n    none"]
     print "\n    Avg Wait By Day (s): %s" % ' '.join(data)
 
     data = ["\n      %s - %s (max:%s)" %
-            (e[0], e[1], collection.day_highest_osd(e[0], 'max')) for e in day_maxs]
+            (e[0], e[1], collection.day_highest_osd(e[0], 'max'))
+            for e in day_maxs]
     data = data or ["\n    none"]
     print "\n    Max Wait By Day (s): %s" % ' '.join(data)
 

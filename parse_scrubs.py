@@ -133,6 +133,71 @@ class CephScrubStatsCollection(object):
 
         return sorted(stats.keys()), stats
 
+    def osd_most_pg_scrubs(self, day, action, osd=None):
+        highest = []
+        if not osd:
+            for osd in self.scrub_stats['osds']:
+                stat = self.osd_most_pg_scrubs(day, action, osd)
+                if not highest or highest[0] < stat:
+                    highest = [stat, osd]
+
+            return "%s(%s)" % (highest[1], highest[0])
+        else:
+            total = 0
+            pgs = self.scrub_stats['osds'][osd]['pgs']
+            for pg in pgs:
+                for s in pgs[pg]['shelved_actions'][action]:
+                    _day = s['end'].day
+                    _month = s['end'].month
+                    if (int(_month) == int(self.month) and
+                            int(_day) == int(day)):
+                        total += 1
+
+            return total
+
+    def day_longest_scrubaction(self, day, action):
+        days = {}
+        for pg in self.scrub_stats['pgs']:
+            for pg_osd in self.scrub_stats['pgs'][pg]:
+                _pg = self.scrub_stats['pgs'][pg][pg_osd]
+                for s in _pg['shelved_actions'][action]:
+                    if day != s['start'].day:
+                        continue
+
+                    if s['end'].day not in days:
+                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
+                    elif days[s['end'].day]['length'] < s['length']:
+                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
+
+        _day = days.get(day, {'pg': 'n/a', 'length': 'n/a'})
+        return "pg=%s,length=%s" % (_day['pg'], _day['length'])
+
+    @property
+    def total_osds(self):
+        osds = []
+        for pg in collection.scrub_stats['pgs']:
+            for pg_osd in collection.scrub_stats['pgs'][pg]:
+                _pg = collection.scrub_stats['pgs'][pg]
+                for action in ['scrub', 'deep-scrub']:
+                    for event in _pg[pg_osd]['shelved_actions'][action]:
+                        if event['start'].month == args.month:
+                            if pg_osd not in osds:
+                                osds.append(pg_osd)
+        return len(osds)
+
+    @property
+    def total_pgs(self):
+        pgs = []
+        for pg in collection.scrub_stats['pgs']:
+            for pg_osd in collection.scrub_stats['pgs'][pg]:
+                _pg = collection.scrub_stats['pgs'][pg]
+                for action in ['scrub', 'deep-scrub']:
+                    for event in _pg[pg_osd]['shelved_actions'][action]:
+                        if event['start'].month == args.month:
+                            if pg not in pgs:
+                                pgs.append(pg)
+
+        return len(pgs)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -148,25 +213,10 @@ if __name__ == "__main__":
     collection = CephScrubStatsCollection(args.month,
                                           get(args.path, keywords, filter))
     collection.parse()
+    print "Scrubbing stats for month %s:\n" % (args.month)
 
-    osds = []
-    pgs = []
-    for pg in collection.scrub_stats['pgs']:
-        for pg_osd in collection.scrub_stats['pgs'][pg]:
-            _pg = collection.scrub_stats['pgs'][pg]
-            for action in ['scrub', 'deep-scrub']:
-                for event in _pg[pg_osd]['shelved_actions'][action]:
-                    if event['start'].month == args.month:
-                        if pg_osd not in osds:
-                            osds.append(pg_osd)
-
-                        if pg not in pgs:
-                            pgs.append(pg)
-
-    print "\nScrubbing stats for month %s:\n" % (args.month)
-
-    print "%s OSDs scrubbed" % len(osds)
-    print "%s PGs scrubbed" % len(pgs)
+    print "%s OSDs scrubbed" % collection.total_osds
+    print "%s PGs scrubbed" % collection.total_pgs
 
     scrubs = 0
     for pg in collection.scrub_stats['pgs']:
@@ -184,61 +234,24 @@ if __name__ == "__main__":
 
     print "%s deep-scrubs" % deepscrubs
 
-    def osd_most_pg_scrubs(day, month, action, osd=None):
-        highest = None
-        if not osd:
-            for osd in collection.scrub_stats['osds']:
-                stat = osd_most_pg_scrubs(day, month, action, osd)
-                if not highest or highest[0] < stat:
-                    highest = [stat, osd]
-
-            return "%s(%s)" % (highest[1], highest[0])
-        else:
-            total = 0
-            pgs = collection.scrub_stats['osds'][osd]['pgs']
-            for pg in pgs:
-                for s in pgs[pg]['shelved_actions'][action]:
-                    _day = s['end'].day
-                    _month = s['end'].month
-                    if int(_month) == int(month) and int(_day) == int(day):
-                        total += 1
-
-            return total
-
-    def day_longest_deepscrub(day, month, action, osd=None):
-        days = {}
-        for pg in collection.scrub_stats['pgs']:
-            for pg_osd in collection.scrub_stats['pgs'][pg]:
-                _pg = collection.scrub_stats['pgs'][pg][pg_osd]
-                for s in _pg['shelved_actions']['deep-scrub']:
-                    if day != s['start'].day:
-                        continue
-
-                    if s['end'].day not in days:
-                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
-                    elif days[s['end'].day]['length'] < s['length']:
-                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
-
-        _day = days.get(day, {'pg': 'n/a', 'length': 'n/a'})
-        return "pg=%s,length=%s" % (_day['pg'], _day['length'])
-
-    keys, stats = collection.get_stats('scrub')
+    days, stats = collection.get_stats('scrub')
     data = ["\n    %s - %s scrubs (osds:%s, pgs:%s, mostscrubs:%s, "
             "longest:%s))" %
-            (k, stats[k]['count'], len(set(stats[k]['osds'])),
-             len(set(stats[k]['pgs'])),
-             osd_most_pg_scrubs(k, args.month, 'scrub'),
-             day_longest_deepscrub(k, args.month, 'scrub')) for k in keys]
+            (day, stats[day]['count'], len(set(stats[day]['osds'])),
+             len(set(stats[day]['pgs'])),
+             collection.osd_most_pg_scrubs(day, 'scrub'),
+             collection.day_longest_scrubaction(day, 'scrub')) for day in days]
     data = data or ["\n    none"]
     print "\n  No. scrubs by day: %s" % ' '.join(data)
 
-    keys, stats = collection.get_stats('deep-scrub')
+    days, stats = collection.get_stats('deep-scrub')
     data = ["\n    %s - %s deep-scrubs (osds:%s, pgs:%s, mostscrubs:%s, "
             "longest:%s)" %
-            (k, stats[k]['count'], len(set(stats[k]['osds'])),
-             len(set(stats[k]['pgs'])),
-             osd_most_pg_scrubs(k, args.month, 'deep-scrub'),
-             day_longest_deepscrub(k, args.month, 'deep-scrub')) for k in keys]
+            (day, stats[day]['count'], len(set(stats[day]['osds'])),
+             len(set(stats[day]['pgs'])),
+             collection.osd_most_pg_scrubs(day, 'deep-scrub'),
+             collection.day_longest_scrubaction(day, 'deep-scrub'))
+            for day in days]
     data = data or ["\n    none"]
     print "\n  No. deep-scrubs by day: %s" % ' '.join(data)
 

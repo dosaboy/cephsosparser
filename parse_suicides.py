@@ -93,7 +93,7 @@ class CephSuicideStatsCollection(object):
                 self.thread_index[osd][t.day].append((t, s['thread']))
 
         for day in day_counters:
-            _max = None
+            _max = []
             for osd in day_counters[day]:
                 if not _max or _max[1] < day_counters[day][osd]:
                     _max = (osd, day_counters[day][osd])
