@@ -276,13 +276,13 @@ if __name__ == "__main__":
     data = data or ["\n    none"]
     print "\n    Avg Wait By Month (s): %s" % ' '.join(data)
 
-    data = ["\n      %s - %s (max:%s)" %
+    data = ["\n      %s - %s (max=%s)" %
             (e[0], e[1], collection.day_highest_osd(e[0], 'avg'))
             for e in day_avgs]
     data = data or ["\n    none"]
     print "\n    Avg Wait By Day (s): %s" % ' '.join(data)
 
-    data = ["\n      %s - %s (max:%s)" %
+    data = ["\n      %s - %s (max=%s)" %
             (e[0], e[1], collection.day_highest_osd(e[0], 'max'))
             for e in day_maxs]
     data = data or ["\n    none"]

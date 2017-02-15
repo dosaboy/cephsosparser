@@ -24,7 +24,7 @@ import argparse
 import copy
 import datetime
 
-from common import get
+from common import get, avg
 
 
 class CephScrubStatsCollection(object):
@@ -58,7 +58,8 @@ class CephScrubStatsCollection(object):
             empty = {'start': None, 'end': None}
             empty_actions = {'scrub': empty,
                              'deep-scrub': copy.deepcopy(empty)}
-            empty_pg = {pg: {'actions': empty_actions,
+            empty_pg = {pg: {'pg_id': pg,
+                             'actions': empty_actions,
                              'shelved_actions': {'deep-scrub': [],
                                                  'scrub': []}}}
 
@@ -133,45 +134,6 @@ class CephScrubStatsCollection(object):
 
         return sorted(stats.keys()), stats
 
-    def osd_most_pg_scrubs(self, day, action, osd=None):
-        highest = []
-        if not osd:
-            for osd in self.scrub_stats['osds']:
-                stat = self.osd_most_pg_scrubs(day, action, osd)
-                if not highest or highest[0] < stat:
-                    highest = [stat, osd]
-
-            return "%s(%s)" % (highest[1], highest[0])
-        else:
-            total = 0
-            pgs = self.scrub_stats['osds'][osd]['pgs']
-            for pg in pgs:
-                for s in pgs[pg]['shelved_actions'][action]:
-                    _day = s['end'].day
-                    _month = s['end'].month
-                    if (int(_month) == int(self.month) and
-                            int(_day) == int(day)):
-                        total += 1
-
-            return total
-
-    def day_longest_scrubaction(self, day, action):
-        days = {}
-        for pg in self.scrub_stats['pgs']:
-            for pg_osd in self.scrub_stats['pgs'][pg]:
-                _pg = self.scrub_stats['pgs'][pg][pg_osd]
-                for s in _pg['shelved_actions'][action]:
-                    if day != s['start'].day:
-                        continue
-
-                    if s['end'].day not in days:
-                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
-                    elif days[s['end'].day]['length'] < s['length']:
-                        days[s['end'].day] = {'length': s['length'], 'pg': pg}
-
-        _day = days.get(day, {'pg': 'n/a', 'length': 'n/a'})
-        return "pg=%s,length=%s" % (_day['pg'], _day['length'])
-
     @property
     def total_osds(self):
         osds = []
@@ -198,6 +160,78 @@ class CephScrubStatsCollection(object):
                                 pgs.append(pg)
 
         return len(pgs)
+
+    def osd_most_pg_scrubs(self, day, action, osd=None):
+        highest = []
+        if not osd:
+            for osd in self.scrub_stats['osds']:
+                stat = self.osd_most_pg_scrubs(day, action, osd)
+                if not highest or highest[0] < stat:
+                    highest = [stat, osd]
+
+            return "%s(%s)" % (highest[1], highest[0])
+        else:
+            total = 0
+            pgs = self.scrub_stats['osds'][osd]['pgs']
+            for pg in pgs:
+                for s in pgs[pg]['shelved_actions'][action]:
+                    _day = s['end'].day
+                    _month = s['end'].month
+                    if (int(_month) == int(self.month) and
+                            int(_day) == int(day)):
+                        total += 1
+
+            return total
+
+    def day_osd_actions(self, day, action):
+        day_actions = {}
+        for pg in self.scrub_stats['pgs']:
+            for pg_osd in self.scrub_stats['pgs'][pg]:
+                _pg = self.scrub_stats['pgs'][pg][pg_osd]
+                for s in _pg['shelved_actions'][action]:
+                    _day = s['start'].day
+                    _month = s['start'].month
+                    if int(_month) != int(self.month) or day != _day:
+                        continue
+
+                    if pg not in day_actions:
+                        day_actions[pg_osd] = [s]
+                    else:
+                        day_actions[pg_osd].append(s)
+
+        return day_actions
+
+    def day_longest_scrubaction(self, day, action):
+        days = {}
+        for pg in self.scrub_stats['pgs']:
+            for pg_osd in self.scrub_stats['pgs'][pg]:
+                _pg = self.scrub_stats['pgs'][pg][pg_osd]
+                for s in _pg['shelved_actions'][action]:
+                    _day = s['start'].day
+                    _month = s['start'].month
+                    if int(_month) != int(self.month) or day != _day:
+                        continue
+
+                    if _day not in days:
+                        days[_day] = {'length': s['length'], 'pg': _pg}
+                    elif days[_day]['length'] < s['length']:
+                        days[_day] = {'length': s['length'], 'pg': _pg}
+
+        _day = days.get(day, {'pg': 'n/a', 'length': 'n/a'})
+        return "pg=%s,length=%s" % (_day['pg']['pg_id'], _day['length'])
+
+    def day_highest_osd_avg(self, day, action):
+        day_highest = {}
+        day_actions = self.day_osd_actions(day, action)
+        if day_actions:
+            for osd in day_actions:
+                a = avg([s['end'] - s['start'] for s in day_actions[osd]])
+                if not day_highest:
+                    day_highest = {'osd': osd, 'avg': a}
+                elif day_highest['avg'] < a:
+                    day_highest = {'osd': osd, 'avg': a}
+
+        return day_highest
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -235,8 +269,8 @@ if __name__ == "__main__":
     print "%s deep-scrubs" % deepscrubs
 
     days, stats = collection.get_stats('scrub')
-    data = ["\n    %s - %s scrubs (osds:%s, pgs:%s, mostscrubs:%s, "
-            "longest:%s))" %
+    data = ["\n    %s - %s scrubs (osds=%s, pgs=%s, mostscrubs=%s, "
+            "longest=%s))" %
             (day, stats[day]['count'], len(set(stats[day]['osds'])),
              len(set(stats[day]['pgs'])),
              collection.osd_most_pg_scrubs(day, 'scrub'),
@@ -245,8 +279,8 @@ if __name__ == "__main__":
     print "\n  No. scrubs by day: %s" % ' '.join(data)
 
     days, stats = collection.get_stats('deep-scrub')
-    data = ["\n    %s - %s deep-scrubs (osds:%s, pgs:%s, mostscrubs:%s, "
-            "longest:%s)" %
+    data = ["\n    %s - %s deep-scrubs (osds=%s, pgs=%s, mostscrubs=%s, "
+            "longest=%s)" %
             (day, stats[day]['count'], len(set(stats[day]['osds'])),
              len(set(stats[day]['pgs'])),
              collection.osd_most_pg_scrubs(day, 'deep-scrub'),
@@ -262,5 +296,17 @@ if __name__ == "__main__":
                                                           r['osd'])
     else:
         print "    No repeated deep-scrubs detected"
+
+    print "\n  Highest avg scrub time for OSD by day:"
+    for day in xrange(1, 31):
+        h = collection.day_highest_osd_avg(day, 'scrub')
+        if h:
+            print "    %s - %s avg=%s" % (day, h['osd'], h['avg'])
+
+    print "\n  Highest avg deep-scrub time for OSD by day:"
+    for day in xrange(1, 31):
+        h = collection.day_highest_osd_avg(day, 'deep-scrub')
+        if h:
+            print "    %s - %s avg=%s" % (day, h['osd'], h['avg'])
 
     print ""
