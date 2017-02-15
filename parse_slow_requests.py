@@ -45,15 +45,16 @@ class CephSlowRequestStatsCollection(object):
     def parse(self):
         for event in self.events:
             osd = event['data'].group(1)
-            t = datetime.datetime.strptime(event['data'].group(2),
-                                           '%Y-%m-%d %H:%M:%S.%f')
+            timestamp = event['data'].group(2)
+            info = float(event['data'].group(3))
+
+            t = datetime.datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S.%f')
+            data = (t, info)
             if osd in self.osd_stats:
-                data = (t, float(event['data'].group(3)))
                 self.osd_stats[osd]['slow_requests'].append(data)
             else:
-                val = float(event['data'].group(3))
                 self.osd_stats[osd] = {'host': event['host'],
-                                       'slow_requests': [(t, val)]}
+                                       'slow_requests': [data]}
 
     def aggregate(self, osd):
         host = self.osd_stats[osd]['host']
