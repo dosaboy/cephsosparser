@@ -237,6 +237,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default=None, required=True)
     parser.add_argument('--month', type=int, default=None, required=True)
+    parser.add_argument('--cache', action='store_true', default=False)
     args = parser.parse_args()
 
     filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
@@ -245,7 +246,8 @@ if __name__ == "__main__":
               "[0-9]*[a-z]*.+)")
     keywords = '" scrub | deep-scrub "'
     collection = CephScrubStatsCollection(args.month,
-                                          get(args.path, keywords, filter))
+                                          get(args.path, keywords, filter,
+                                              args.cache))
     collection.parse()
     print "Scrubbing stats for month %s:\n" % (args.month)
 

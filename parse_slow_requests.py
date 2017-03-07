@@ -165,6 +165,7 @@ class CephSlowRequestStatsCollection(object):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default=None, required=True)
+    parser.add_argument('--cache', action='store_true', default=False)
     args = parser.parse_args()
 
     filter = (r".+(ceph-osd\.[0-9]*)\.log.*:.*([0-9]"
@@ -174,7 +175,7 @@ if __name__ == "__main__":
     keywords = '"slow requests"'
 
     collection = CephSlowRequestStatsCollection(get(args.path, keywords,
-                                                    filter))
+                                                    filter, args.cache))
     collection.parse()
 
     osds = list(collection.osd_stats.keys())

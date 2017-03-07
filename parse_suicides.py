@@ -111,6 +111,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--path', type=str, default=None, required=True)
     parser.add_argument('--month', type=int, default=None, required=True)
+    parser.add_argument('--cache', action='store_true', default=False)
     args = parser.parse_args()
 
     keywords = '"had suicide timed out"'
@@ -120,7 +121,8 @@ if __name__ == "__main__":
               "after (.+)")
 
     collection = CephSuicideStatsCollection(args.month,
-                                            get(args.path, keywords, filter))
+                                            get(args.path, keywords, filter,
+                                                args.cache))
     collection.parse()
 
     print "OSD Suicide stats for month %s" % (args.month)
